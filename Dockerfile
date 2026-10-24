@@ -6,6 +6,6 @@ RUN npm ci --omit=dev
 COPY src ./src
 COPY public ./public
 COPY tsconfig.json ./
-VOLUME ["/app/data"]
+# Os dados ficam em /app/data: monte um volume persistente nesse caminho
 EXPOSE 3000
 CMD ["npx", "tsx", "src/server.ts"]
