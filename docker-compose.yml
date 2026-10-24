@@ -1,0 +1,47 @@
+# Uso:
+#   Somente o sistema (API oficial da Meta ou simulador):  docker compose up -d
+#   Com Evolution API (conexão por QR Code):               docker compose --profile evolution up -d
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+
+  # --- Evolution API (opcional) — confira as variáveis na documentação oficial: https://doc.evolution-api.com
+  evolution:
+    image: evoapicloud/evolution-api:latest
+    profiles: ["evolution"]
+    restart: unless-stopped
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:evolution@evolution-db:5432/evolution
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - evolution-db
+
+  evolution-db:
+    image: postgres:16
+    profiles: ["evolution"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_db:/var/lib/postgresql/data
+
+volumes:
+  evolution_instances:
+  evolution_db:

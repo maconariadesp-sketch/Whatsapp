@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Painel de Atendimento</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="login hidden">
+    <form id="login-form" class="card">
+      <h1>Painel de Atendimento</h1>
+      <p class="muted">Triagem jurídica pelo WhatsApp</p>
+      <input type="password" id="password" placeholder="Senha do escritório" autocomplete="current-password" required />
+      <button type="submit">Entrar</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <section id="app" class="hidden">
+    <header class="topbar">
+      <strong class="brand">⚖️ Atendimento</strong>
+      <nav>
+        <button data-tab="conversas" class="tab active">Conversas</button>
+        <button data-tab="agenda" class="tab">Agenda</button>
+        <button data-tab="config" class="tab">Configurações</button>
+      </nav>
+      <span id="status-pill" class="pill"></span>
+      <button id="logout" class="ghost">Sair</button>
+    </header>
+
+    <!-- Conversas -->
+    <main id="tab-conversas" class="conversas">
+      <aside class="list-pane">
+        <div class="list-tools">
+          <input id="search" type="search" placeholder="Buscar nome, telefone, área…" />
+          <select id="filter">
+            <option value="todas">Todas</option>
+            <option value="atencao">Precisam de atenção</option>
+            <option value="ia">Com a IA</option>
+            <option value="humano">Com a equipe</option>
+            <option value="encerrada">Encerradas</option>
+          </select>
+          <button id="new-test" class="ghost small" title="Simular um cliente sem usar o WhatsApp">+ Conversa de teste</button>
+        </div>
+        <ul id="conv-list" class="conv-list"></ul>
+      </aside>
+
+      <section class="chat-pane">
+        <div id="chat-empty" class="empty">Selecione uma conversa</div>
+        <div id="chat" class="chat hidden">
+          <div class="chat-head">
+            <button id="back" class="ghost small mobile-only">←</button>
+            <div>
+              <div id="chat-name" class="chat-name"></div>
+              <div id="chat-phone" class="muted small"></div>
+            </div>
+            <div class="chat-actions">
+              <label class="switch" title="Quando ligado, a IA responde automaticamente">
+                <input type="checkbox" id="ai-toggle" /><span>IA ativa</span>
+              </label>
+              <button id="close-conv" class="ghost small">Encerrar</button>
+              <button id="toggle-info" class="ghost small">Ficha</button>
+            </div>
+          </div>
+          <div id="messages" class="messages"></div>
+          <form id="composer" class="composer">
+            <div id="test-hint" class="test-hint hidden">
+              Conversa de teste: escreva como se fosse o cliente.
+              <label><input type="checkbox" id="as-client" checked /> enviar como cliente</label>
+            </div>
+            <div class="composer-row">
+              <textarea id="composer-text" rows="1" placeholder="Escreva uma mensagem (a IA será pausada nesta conversa)"></textarea>
+              <button type="submit">Enviar</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <aside id="info-pane" class="info-pane hidden">
+        <h3>Ficha de triagem</h3>
+        <form id="lead-form" class="lead-form"></form>
+        <h3>Reuniões</h3>
+        <ul id="conv-appts" class="appts"></ul>
+        <button id="delete-conv" class="danger small">Excluir conversa e dados</button>
+      </aside>
+    </main>
+
+    <!-- Agenda -->
+    <main id="tab-agenda" class="page hidden">
+      <div class="page-inner">
+        <h2>Próximas reuniões</h2>
+        <ul id="appt-list" class="appts big"></ul>
+        <h2>Horários livres (próximos 7 dias)</h2>
+        <div id="slot-list" class="slots"></div>
+      </div>
+    </main>
+
+    <!-- Configurações -->
+    <main id="tab-config" class="page hidden">
+      <form id="settings-form" class="page-inner settings">
+        <h2>Configurações do escritório</h2>
+        <p class="muted">Essas informações orientam a IA. Alterações valem para as próximas respostas.</p>
+        <div id="settings-fields"></div>
+        <button type="submit">Salvar configurações</button>
+        <span id="settings-saved" class="muted"></span>
+        <p class="muted small"><a href="/api/export.csv">Exportar fichas de triagem (CSV/Excel)</a></p>
+      </form>
+    </main>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
