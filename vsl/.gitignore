@@ -1,0 +1,19 @@
+# videos finais e material pesado nao vao pro git
+saida/*.mp4
+saida/*.mov
+entrada/avatar/*.mp4
+entrada/avatar/*.mov
+entrada/broll/*.mp4
+entrada/broll/*.mov
+entrada/narracao/*.wav
+entrada/narracao/*.mp3
+entrada/musica/*.mp3
+entrada/musica/*.wav
+
+# excecao: os placeholders servem para testar o motor sem ter nenhum material
+!entrada/avatar/placeholder.mp4
+!entrada/broll/placeholder-broll.mp4
+
+# cache do python
+__pycache__/
+*.pyc
