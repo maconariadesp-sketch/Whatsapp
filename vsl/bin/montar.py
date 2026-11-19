@@ -364,6 +364,14 @@ def renderizar_cena(cena, i, canvas, marca, trabalho, mascara):
             circulo = bool(cena.get("avatar_circulo", True))
         ax = max(0, min(ax, L - aw))
         ay = max(0, min(ay, A - ah))
+        # trava geral: em qualquer posicao de PiP o avatar fica acima da
+        # faixa de legenda (inclusive em "centro", que antes a ignorava)
+        if layout != "avatar_cheio" and (cena.get("texto") or "").strip() \
+                and cena.get("legenda") is not False:
+            _t, _mv, _mc, _ml, _banda = metricas_legenda(canvas, marca)
+            limite = A - _banda - ah
+            if limite >= 0:
+                ay = min(ay, limite)
         anel = max(3, int(min(L, A) * 0.006)) if circulo else 0
         rw = aw + anel * 2
         rx, ry = max(0, ax - anel), max(0, ay - anel)
