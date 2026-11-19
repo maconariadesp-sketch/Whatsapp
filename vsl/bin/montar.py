@@ -13,6 +13,7 @@ Uso:
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -51,15 +52,107 @@ def morrer(msg):
     sys.exit(1)
 
 
-def rodar(cmd, silencioso=True):
-    """Executa um comando e devolve stdout. Levanta erro com o log do ffmpeg."""
+def rodar(cmd, stderr=False):
+    """Executa um comando e devolve stdout (ou stderr, se pedido).
+    Levanta erro com a cauda do log do ffmpeg."""
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         cauda = (res.stderr or "").strip().splitlines()[-25:]
         raise RuntimeError(
             "comando falhou:\n  %s\n\n%s" % (" ".join(cmd), "\n".join(cauda))
         )
-    return res.stdout
+    return res.stderr if stderr else res.stdout
+
+
+def niveis_do_audio(caminho_audio):
+    """Devolve (piso_de_ruido_dB, rms_dB) do arquivo."""
+    try:
+        log = rodar(["ffmpeg", "-hide_banner", "-nostats", "-i", caminho_audio,
+                     "-af", "astats=metadata=1:reset=0", "-f", "null", "-"],
+                    stderr=True)
+    except RuntimeError:
+        return (None, None)
+    def pegar(rotulo):
+        # astats escreve "-inf" em silencio digital puro
+        m = re.findall(r"%s:\s*(-?inf|-?[\d.]+)" % rotulo, log)
+        if not m:
+            return None
+        try:
+            v = float(m[0])
+        except ValueError:
+            return None
+        return -90.0 if v == float("-inf") else (None if v != v else v)
+    return (pegar("Noise floor dB"), pegar("RMS level dB"))
+
+
+def segmentos_de_fala(caminho_audio, duracao, pausa_min=0.22):
+    """Descobre onde ha fala no audio, via deteccao de silencio do ffmpeg.
+
+    O limiar e ADAPTATIVO: um valor fixo nao serve porque depende do quanto
+    o microfone captou de ruido de sala. Fica acima do piso de ruido do
+    proprio arquivo e abaixo do nivel medio da voz.
+
+    Devolve [(inicio, fim), ...]. Se a deteccao nao produzir um resultado
+    confiavel, devolve o trecho inteiro, e quem chama volta a dividir o
+    tempo por igual.
+    """
+    piso, rms = niveis_do_audio(caminho_audio)
+    if piso is None or rms is None or rms <= piso:
+        limiar_db = -34
+    else:
+        # acima do ruido de sala, mas bem abaixo da voz
+        limiar_db = max(piso + 5.0, rms - 12.0)
+        limiar_db = min(limiar_db, rms - 3.0)
+
+    try:
+        log = rodar(["ffmpeg", "-hide_banner", "-nostats", "-i", caminho_audio,
+                     "-af", "silencedetect=noise=%.1fdB:d=%.2f" % (limiar_db, pausa_min),
+                     "-f", "null", "-"], stderr=True)
+    except RuntimeError:
+        return [(0.0, duracao)]
+
+    silencios = []
+    inicio = None
+    for linha in log.splitlines():
+        m = re.search(r"silence_start:\s*(-?[\d.]+)", linha)
+        if m:
+            inicio = max(0.0, float(m.group(1)))
+        m = re.search(r"silence_end:\s*([\d.]+)", linha)
+        if m and inicio is not None:
+            silencios.append((inicio, float(m.group(1))))
+            inicio = None
+    if inicio is not None:
+        silencios.append((inicio, duracao))
+
+    falas, cursor = [], 0.0
+    for s0, s1 in silencios:
+        if s0 - cursor > 0.05:
+            falas.append((cursor, min(s0, duracao)))
+        cursor = max(cursor, s1)
+    if duracao - cursor > 0.05:
+        falas.append((cursor, duracao))
+    if not falas:
+        return [(0.0, duracao)]
+
+    # Trava: se a deteccao engoliu mais de 55% do audio, ela esta cortando
+    # fala e nao silencio. Melhor cair para a divisao por igual do que
+    # dessincronizar a legenda.
+    fracao = sum(f - i for i, f in falas) / float(duracao or 1)
+    if fracao < 0.45:
+        return [(0.0, duracao)]
+    return falas
+
+
+def tempo_real(pos, falas):
+    """Converte uma posicao na linha do tempo 'so de fala' para o tempo real
+    do audio, pulando os silencios."""
+    restante = pos
+    for ini, fim in falas:
+        bloco = fim - ini
+        if restante <= bloco:
+            return ini + restante
+        restante -= bloco
+    return falas[-1][1]
 
 
 def tem_filtro(nome):
@@ -233,41 +326,52 @@ def gerar_ass(cenas, canvas, marca, caminho_ass):
         palavras = texto.split()
         blocos = quebrar_em_blocos(palavras, max_chars, max_linhas)
 
-        # tempo proporcional por palavra dentro da duracao real da cena
         pesos = [peso_palavra(p) for p in palavras]
         total_peso = sum(pesos) or 1.0
-        # pequena folga no fim para a legenda nao terminar colada no corte
-        util = max(0.1, dur - min(0.25, dur * 0.06))
-        dur_palavra = {}
-        acc = 0.0
-        for i, p in enumerate(palavras):
-            d = util * (pesos[i] / total_peso)
-            dur_palavra[i] = d
-            acc += d
+
+        # Com narracao gravada, a legenda segue a FALA de verdade: detecta
+        # onde ha voz e distribui as palavras so nesses trechos, parando nas
+        # pausas. Sem narracao (modo rascunho), divide o tempo por igual.
+        if cena.get("_audio"):
+            falas = segmentos_de_fala(cena["_audio"], dur)
+            fala_total = sum(f - i for i, f in falas) or dur
+            tempos, acumulado = [], 0.0
+            for p in pesos:
+                ini = tempo_real(acumulado, falas)
+                acumulado += fala_total * (p / total_peso)
+                fim = tempo_real(min(acumulado, fala_total), falas)
+                tempos.append((t0 + ini, t0 + max(fim, ini + 0.04)))
+        else:
+            util = max(0.1, dur - min(0.25, dur * 0.06))
+            tempos, acumulado = [], 0.0
+            for p in pesos:
+                ini = acumulado
+                acumulado += util * (p / total_peso)
+                tempos.append((t0 + ini, t0 + acumulado))
 
         idx = 0
-        t_bloco = t0
-        for bloco in blocos:
+        for n_bloco, bloco in enumerate(blocos):
             partes_linha = []
-            dur_bloco = 0.0
+            i_primeira = idx
             for linha in bloco:
                 tokens = []
                 for palavra in linha:
-                    d = dur_palavra[idx]
-                    cs = max(1, int(round(d * 100)))
-                    if normalizar(palavra) in destaques:
-                        tokens.append("{\\kf%d\\1c%s}%s" % (cs, cor_destaque, palavra))
-                    else:
-                        tokens.append("{\\kf%d\\1c%s}%s" % (cs, cor_acesa, palavra))
-                    dur_bloco += d
+                    ini, fim = tempos[idx]
+                    cs = max(1, int(round((fim - ini) * 100)))
+                    cor = cor_destaque if normalizar(palavra) in destaques else cor_acesa
+                    tokens.append("{\\kf%d\\1c%s}%s" % (cs, cor, palavra))
                     idx += 1
                 partes_linha.append(" ".join(tokens))
-            texto_ass = "\\N".join(partes_linha)
+            inicio_bloco = tempos[i_primeira][0]
+            fim_bloco = tempos[idx - 1][1]
+            # o ultimo bloco da cena segura ate o corte, para nao abrir um
+            # vao sem legenda no fim de cada cena
+            if n_bloco == len(blocos) - 1:
+                fim_bloco = t0 + dur
             eventos.append(
                 "Dialogue: 0,%s,%s,VSL,,0,0,0,,%s"
-                % (tc(t_bloco), tc(t_bloco + dur_bloco), texto_ass)
+                % (tc(inicio_bloco), tc(fim_bloco), "\\N".join(partes_linha))
             )
-            t_bloco += dur_bloco
         t0 += dur
 
     with open(caminho_ass, "w", encoding="utf-8") as fh:
@@ -291,6 +395,41 @@ def gerar_mascara_circulo(lado, destino):
 
 # ------------------------------------------------------------------- fundos
 
+def montar_fundo_rotativo(clipes, canvas, dur, intervalo, destino):
+    """Alterna varios clipes de B-roll dentro de uma mesma cena.
+
+    Cada clipe fica no ar por `intervalo` segundos; quando a lista acaba,
+    volta ao primeiro, mas avancando no tempo do clipe para nao repetir
+    sempre o mesmo trecho.
+    """
+    L, A = canvas
+    n = max(1, int(math.ceil(dur / float(intervalo))))
+    args = ["ffmpeg", "-y", "-v", "error"]
+    filtros, rotulos = [], []
+    restante = dur
+    for k in range(n):
+        clipe = clipes[k % len(clipes)]
+        t = min(float(intervalo), restante)
+        if t <= 0.02:
+            break
+        restante -= t
+        volta = k // len(clipes)          # quantas vezes ja usamos este clipe
+        inicio = volta * float(intervalo)
+        args += ["-stream_loop", "-1", "-t", "%.3f" % (inicio + t + 0.5), "-i", clipe]
+        filtros.append(
+            "[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"
+            "crop=%d:%d,fps=%d,setsar=1,trim=start=%.3f:duration=%.3f,"
+            "setpts=PTS-STARTPTS[s%d]"
+            % (len(rotulos), L, A, L, A, FPS, inicio, t, k))
+        rotulos.append("[s%d]" % k)
+    filtros.append("%sconcat=n=%d:v=1:a=0[out]" % ("".join(rotulos), len(rotulos)))
+    args += ["-filter_complex", ";".join(filtros), "-map", "[out]",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+             "-pix_fmt", "yuv420p", "-r", str(FPS), "-t", "%.3f" % dur, destino]
+    rodar(args)
+    return destino
+
+
 def entrada_fundo(cena, canvas, dur, trabalho):
     """
     Devolve (lista_de_args_de_entrada, etiqueta_do_stream) para o fundo da cena.
@@ -298,6 +437,17 @@ def entrada_fundo(cena, canvas, dur, trabalho):
     """
     L, A = canvas
     fundo = cena.get("fundo")
+
+    # lista de clipes -> pre-renderiza um fundo com eles se alternando
+    if isinstance(fundo, (list, tuple)):
+        faltando = [c for c in fundo if not os.path.isfile(c)]
+        if faltando:
+            morrer("clipe de fundo nao encontrado: %s" % faltando[0])
+        chave = hashlib.md5(("|".join(fundo) + "|%.3f" % dur).encode()).hexdigest()[:10]
+        alvo = os.path.join(trabalho, "fundo_rot_%s.mp4" % chave)
+        montar_fundo_rotativo(fundo, canvas, dur,
+                              cena.get("broll_intervalo", 3.0), alvo)
+        return (["-i", alvo], "video")
 
     if fundo and not str(fundo).startswith("procedural"):
         if not os.path.isfile(fundo):
@@ -308,19 +458,24 @@ def entrada_fundo(cena, canvas, dur, trabalho):
         return (["-stream_loop", "-1", "-t", "%.3f" % dur, "-i", fundo], "video")
 
     # fundo procedural: gradiente animado, sem precisar de nenhum arquivo
-    cor_a = cena.get("fundo_cor_a", "0x0A1626")
-    cor_b = cena.get("fundo_cor_b", "0x14395F")
+    cor_a = cena.get("fundo_cor_a", "0x12263F")
+    cor_b = cena.get("fundo_cor_b", "0x1E4C7C")
     if tem_filtro("gradients"):
-        src = ("gradients=s=%dx%d:c0=%s:c1=%s:x0=0:y0=0:x1=%d:y1=%d:"
-               "speed=0.012:r=%d:d=%.3f" % (L, A, cor_a, cor_b, L, A, FPS, dur))
+        fonte = ("gradients=s=%dx%d:c0=%s:c1=%s:x0=0:y0=%d:x1=%d:y1=0:"
+                 "speed=0.010:r=%d:d=%.3f"
+                 % (L, A, cor_a, cor_b, A, L, FPS, dur))
     else:
-        src = "color=c=%s:s=%dx%d:r=%d:d=%.3f" % (cor_a, L, A, FPS, dur)
-    return (["-f", "lavfi", "-t", "%.3f" % dur, "-i", src], "procedural")
+        fonte = "color=c=%s:s=%dx%d:r=%d:d=%.3f" % (cor_a, L, A, FPS, dur)
+    # Nada de granulado aqui: ruido aleatorio e incompressivel e fez o
+    # arquivo final saltar de 5 MB para 270 MB. O gradiente em movimento
+    # ja evita o aspecto chapado.
+    return (["-f", "lavfi", "-t", "%.3f" % dur, "-i", fonte], "procedural")
 
 
 # ------------------------------------------------------------ render da cena
 
-def renderizar_cena(cena, i, canvas, marca, trabalho, mascara):
+def renderizar_cena(cena, i, canvas, marca, trabalho, mascara,
+                    primeira=False, ultima=False):
     L, A = canvas
     dur = cena["_duracao"]
     layout = cena.get("layout", "fundo_broll")
@@ -405,10 +560,16 @@ def renderizar_cena(cena, i, canvas, marca, trabalho, mascara):
     f = []
     escurecer = cena.get("escurecer_fundo")
     if escurecer is None:
-        escurecer = -0.14 if layout != "avatar_cheio" else -0.05
+        if tipo_fundo == "procedural":
+            escurecer = 0.0
+        else:
+            escurecer = -0.14 if layout != "avatar_cheio" else -0.05
     desfoque = cena.get("desfoque_fundo")
     if desfoque is None:
-        desfoque = 14 if layout == "fundo_broll" else 0
+        if tipo_fundo == "procedural":
+            desfoque = 0
+        else:
+            desfoque = 14 if layout == "fundo_broll" else 0
 
     base = ("[0:v]scale=%d:%d:force_original_aspect_ratio=increase,"
             "crop=%d:%d,fps=%d,setsar=1" % (L, A, L, A, FPS))
@@ -448,13 +609,24 @@ def renderizar_cena(cena, i, canvas, marca, trabalho, mascara):
         f.append("[%s]vignette=angle=PI/5[vin]" % ultimo)
         ultimo = "vin"
 
-    fade = min(0.22, dur / 6.0)
-    f.append("[%s]fade=t=in:st=0:d=%.3f,fade=t=out:st=%.3f:d=%.3f[vout]"
-             % (ultimo, fade, max(0.0, dur - fade), fade))
+    # Fade so na abertura e no encerramento do VIDEO INTEIRO.
+    # Fade em toda cena faz a imagem piscar preto a cada corte e destroi o
+    # ritmo da VSL, entao entre cenas o corte e seco.
+    fade = min(0.5, dur / 4.0)
+    etapas = []
+    if primeira:
+        etapas.append("fade=t=in:st=0:d=%.3f" % fade)
+    if ultima:
+        etapas.append("fade=t=out:st=%.3f:d=%.3f" % (max(0.0, dur - fade), fade))
+    f.append("[%s]%s[vout]" % (ultimo, ",".join(etapas) if etapas else "null"))
 
+    # microfade no audio evita estalo na emenda entre cenas
+    corte = min(0.012, dur / 20.0)
     f.append("[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:"
              "channel_layouts=stereo,atrim=duration=%.3f,asetpts=PTS-STARTPTS,"
-             "apad=whole_dur=%.3f[aout]" % (idx_audio, dur, dur))
+             "apad=whole_dur=%.3f,afade=t=in:st=0:d=%.3f,"
+             "afade=t=out:st=%.3f:d=%.3f[aout]"
+             % (idx_audio, dur, dur, corte, max(0.0, dur - corte), corte))
 
     args += [
         "-filter_complex", ";".join(f),
@@ -519,7 +691,9 @@ def montar(roteiro, raiz, formato, destino, manter_trabalho=False):
         partes = []
         for i, cena in enumerate(cenas):
             print("    cena %d/%d ..." % (i + 1, len(cenas)), end="", flush=True)
-            partes.append(renderizar_cena(cena, i, (L, A), marca, trabalho, mascara))
+            partes.append(renderizar_cena(
+                cena, i, (L, A), marca, trabalho, mascara,
+                primeira=(i == 0), ultima=(i == len(cenas) - 1)))
             print(" ok")
 
         # concatena as cenas sem reencodar (parametros identicos)
@@ -620,11 +794,18 @@ def main():
 
     # caminhos relativos no roteiro sao relativos a pasta do roteiro
     raiz = os.path.dirname(os.path.abspath(a.roteiro)) or "."
+    def resolver(v):
+        if not v or str(v).startswith("procedural") or os.path.isabs(v):
+            return v
+        return os.path.join(raiz, v)
+
     for cena in roteiro.get("cenas", []):
         for campo in ("fundo", "avatar"):
             v = cena.get(campo)
-            if v and not str(v).startswith("procedural") and not os.path.isabs(v):
-                cena[campo] = os.path.join(raiz, v)
+            if isinstance(v, (list, tuple)):
+                cena[campo] = [resolver(x) for x in v]
+            elif v:
+                cena[campo] = resolver(v)
 
     if a.formato:
         formatos = list(FORMATOS) if a.formato == "todos" else [a.formato]

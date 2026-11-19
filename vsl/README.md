@@ -101,7 +101,10 @@ Com os `.wav` de narração apontados, a duração de cada cena passa a ser a
       "destaque": ["INSS negou"],
       "narracao": "entrada/narracao/cena_01.wav",
       "avatar": "entrada/avatar/avatar.mp4",
-      "fundo": "entrada/broll/escritorio.mp4",
+      "fundo": ["entrada/broll/escritorio.mp4",
+                "entrada/broll/documentos.mp4",
+                "entrada/broll/aperto-de-mao.mp4"],
+      "broll_intervalo": 3,
       "layout": "fundo_broll",
       "avatar_posicao": "baixo-direita"
     }
@@ -118,7 +121,8 @@ Com os `.wav` de narração apontados, a duração de cada cena passa a ser a
 | `narracao` | — | `.wav`/`.mp3` da cena. Sem ele, entra modo rascunho |
 | `duracao` | auto | Força a duração em segundos |
 | `avatar` | — | Vídeo seu. Sem ele, a cena fica só com fundo e legenda |
-| `fundo` | `procedural` | Vídeo, imagem, ou `procedural` (gradiente gerado, sem arquivo) |
+| `fundo` | `procedural` | Vídeo, imagem, `procedural` (gradiente gerado, sem arquivo), ou **uma lista de vídeos** que se alternam dentro da cena |
+| `broll_intervalo` | `3.0` | Segundos que cada clipe da lista fica no ar antes de trocar |
 | `layout` | `fundo_broll` | `fundo_broll` (B-roll atrás, avatar em círculo), `avatar_cheio` (avatar na tela toda), `so_fundo` (sem avatar) |
 | `avatar_posicao` | `baixo-direita` | `baixo-esquerda`, `alto-direita`, `alto-esquerda`, `centro`, `centro-alto` |
 | `avatar_escala` | `0.30`–`0.34` | Proporção do lado menor da tela |
@@ -134,9 +138,16 @@ Com os `.wav` de narração apontados, a duração de cada cena passa a ser a
 
 ## O que o motor faz automaticamente
 
-- **Legenda karaokê**: divide o texto em blocos de 2 linhas e acende palavra por
-  palavra. O tempo de cada palavra é proporcional ao tamanho dela e às pausas de
-  pontuação, distribuído dentro da duração real do áudio.
+- **Legenda karaokê alinhada à fala**: divide o texto em blocos de 2 linhas e
+  acende palavra por palavra. Com narração gravada, o motor **detecta onde há voz
+  no áudio** (limiar adaptativo, calculado a partir do piso de ruído do próprio
+  arquivo) e distribui as palavras só nos trechos falados, parando nas pausas.
+  Se a detecção não for confiável, cai automaticamente para a divisão
+  proporcional ao tamanho das palavras — nunca dessincroniza por tentar adivinhar.
+- **B-roll rotativo**: uma cena pode ter vários vídeos de fundo se alternando a
+  cada N segundos, sem você cortar nada na mão.
+- **Corte seco entre cenas**: o fade acontece só na abertura e no encerramento do
+  vídeo. Fade a cada cena faz a imagem piscar preto e destrói o ritmo da VSL.
 - **Avatar nunca encosta na legenda**: a posição é calculada a partir da altura
   real da faixa de legenda, em todos os formatos.
 - **Trilha com ducking**: a música abaixa sozinha quando você fala
