@@ -13,7 +13,15 @@ entrada/musica/*.wav
 # excecao: os placeholders servem para testar o motor sem ter nenhum material
 !entrada/avatar/placeholder.mp4
 !entrada/broll/placeholder-broll.mp4
+!entrada/broll/placeholder-broll-1.mp4
+!entrada/broll/placeholder-broll-2.mp4
+!entrada/broll/placeholder-broll-3.mp4
 
 # cache do python
 __pycache__/
 *.pyc
+
+# roteiros de teste locais: apontam para material pessoal que nao e
+# versionado. Os seus roteiros de verdade (roteiro-previdenciario.json,
+# etc.) continuam entrando no git normalmente.
+roteiro-teste.json

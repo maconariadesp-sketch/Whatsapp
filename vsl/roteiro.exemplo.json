@@ -1,6 +1,9 @@
 {
   "titulo": "VSL Previdenciario",
-  "formatos": ["16:9", "9:16"],
+  "formatos": [
+    "16:9",
+    "9:16"
+  ],
   "marca": {
     "cor": "#1EC37A",
     "cor_destaque": "#FFD84D",
@@ -10,7 +13,9 @@
   "cenas": [
     {
       "texto": "Voce trabalhou a vida toda e o INSS negou o seu beneficio?",
-      "destaque": ["INSS negou"],
+      "destaque": [
+        "INSS negou"
+      ],
       "layout": "fundo_broll",
       "fundo": "procedural",
       "fundo_cor_a": "0x0A1626",
@@ -20,11 +25,18 @@
     },
     {
       "texto": "Nove de cada dez negativas acontecem por erro no pedido, nao por falta de direito.",
-      "destaque": ["erro no pedido"],
+      "destaque": [
+        "erro no pedido"
+      ],
       "layout": "fundo_broll",
-      "fundo": "entrada/broll/placeholder-broll.mp4",
+      "fundo": [
+        "entrada/broll/placeholder-broll-1.mp4",
+        "entrada/broll/placeholder-broll-2.mp4",
+        "entrada/broll/placeholder-broll-3.mp4"
+      ],
       "avatar": "entrada/avatar/placeholder.mp4",
-      "avatar_posicao": "baixo-esquerda"
+      "avatar_posicao": "baixo-esquerda",
+      "broll_intervalo": 2.0
     },
     {
       "texto": "Meu nome e Faria. Sou advogado e ja revisei centenas de processos como o seu.",
@@ -35,7 +47,9 @@
     },
     {
       "texto": "Em quarenta e oito horas eu analiso o seu caso e digo exatamente o que deu errado.",
-      "destaque": ["quarenta e oito horas"],
+      "destaque": [
+        "quarenta e oito horas"
+      ],
       "layout": "fundo_broll",
       "fundo": "procedural",
       "fundo_cor_a": "0x121212",
@@ -45,7 +59,9 @@
     },
     {
       "texto": "Chama no WhatsApp agora. A primeira analise e gratuita.",
-      "destaque": ["gratuita"],
+      "destaque": [
+        "gratuita"
+      ],
       "layout": "fundo_broll",
       "fundo": "procedural",
       "fundo_cor_a": "0x06281C",
